@@ -44,12 +44,6 @@ type ManualBalance = {
   amount: number;
 };
 
-type SavingGoal = {
-  title: string;
-  targetAmount: number;
-  currentAmount: number;
-};
-
 const categories: Category[] = [
   "Einnahmen",
   "Fixkosten",
@@ -79,7 +73,6 @@ const categoryStyles: Record<Category, string> = {
 
 const defaultAccounts: Account[] = [
   { id: 1, name: "Girokonto", startBalance: 0 },
-  { id: 2, name: "Sparkonto", startBalance: 0 },
 ];
 
 function getToday() {
@@ -148,14 +141,10 @@ export default function BudgetPage() {
   const [entries, setEntries] = useState<BudgetEntry[]>([]);
   const [manualBalances, setManualBalances] = useState<ManualBalance[]>([]);
   const [selectedMonth, setSelectedMonth] = useState(getMonthKey(today));
-  const [selectedAccountId, setSelectedAccountId] = useState<number | "all">("all");
+  const [selectedAccountId, setSelectedAccountId] = useState<number | "all">(
+    "all"
+  );
   const [isFlipped, setIsFlipped] = useState(false);
-
-  const [goal, setGoal] = useState<SavingGoal>({
-    title: "Sparziel",
-    targetAmount: 1000,
-    currentAmount: 0,
-  });
 
   const [newAccountName, setNewAccountName] = useState("");
   const [newAccountBalance, setNewAccountBalance] = useState("");
@@ -167,16 +156,16 @@ export default function BudgetPage() {
   const [frequency, setFrequency] = useState<Frequency>("monthly");
   const [date, setDate] = useState(today);
   const [accountId, setAccountId] = useState(1);
-  const [startBalanceInput, setStartBalanceInput] = useState("");
+  const [editingEntryId, setEditingEntryId] = useState<number | null>(null);
 
   useEffect(() => {
     const savedAccounts = localStorage.getItem("budgetAccounts");
     const savedEntries = localStorage.getItem("budgetEntries");
     const savedBalances = localStorage.getItem("monthlyBalances");
-    const savedGoal = localStorage.getItem("savingGoal");
 
     if (savedAccounts) {
-      setAccounts(JSON.parse(savedAccounts));
+      const parsedAccounts: Account[] = JSON.parse(savedAccounts);
+      setAccounts(parsedAccounts.length > 0 ? parsedAccounts : defaultAccounts);
     } else {
       localStorage.setItem("budgetAccounts", JSON.stringify(defaultAccounts));
     }
@@ -195,7 +184,6 @@ export default function BudgetPage() {
     }
 
     if (savedBalances) setManualBalances(JSON.parse(savedBalances));
-    if (savedGoal) setGoal(JSON.parse(savedGoal));
   }, []);
 
   function saveAccounts(updated: Account[]) {
@@ -211,11 +199,6 @@ export default function BudgetPage() {
   function saveBalances(updated: ManualBalance[]) {
     setManualBalances(updated);
     localStorage.setItem("monthlyBalances", JSON.stringify(updated));
-  }
-
-  function saveGoal(updated: SavingGoal) {
-    setGoal(updated);
-    localStorage.setItem("savingGoal", JSON.stringify(updated));
   }
 
   function addAccount() {
@@ -242,7 +225,9 @@ export default function BudgetPage() {
     const updatedAccounts = accounts.filter((account) => account.id !== id);
 
     const updatedEntries = entries.map((entry) =>
-      entry.accountId === id ? { ...entry, accountId: fallbackAccount.id } : entry
+      entry.accountId === id
+        ? { ...entry, accountId: fallbackAccount.id }
+        : entry
     );
 
     const updatedBalances = manualBalances.filter(
@@ -263,20 +248,62 @@ export default function BudgetPage() {
 
     if (!trimmedTitle || !numericAmount) return;
 
-    const newEntry: BudgetEntry = {
-      id: Date.now(),
-      title: trimmedTitle,
-      amount: numericAmount,
-      type,
-      frequency,
-      date,
-      category: type === "income" ? "Einnahmen" : category,
-      paidDates: [],
-      accountId,
-    };
+    if (editingEntryId) {
+      const updatedEntries = entries.map((entry) =>
+        entry.id === editingEntryId
+          ? {
+              ...entry,
+              title: trimmedTitle,
+              amount: numericAmount,
+              type,
+              frequency,
+              date,
+              category: type === "income" ? "Einnahmen" : category,
+              accountId,
+            }
+          : entry
+      );
 
-    saveEntries([newEntry, ...entries]);
+      saveEntries(updatedEntries);
+      setEditingEntryId(null);
+    } else {
+      const newEntry: BudgetEntry = {
+        id: Date.now(),
+        title: trimmedTitle,
+        amount: numericAmount,
+        type,
+        frequency,
+        date,
+        category: type === "income" ? "Einnahmen" : category,
+        paidDates: [],
+        accountId,
+      };
 
+      saveEntries([newEntry, ...entries]);
+    }
+
+    setTitle("");
+    setAmount("");
+    setType("expense");
+    setCategory("Fixkosten");
+    setFrequency("monthly");
+    setDate(today);
+    setAccountId(accounts[0]?.id ?? 1);
+  }
+
+  function editEntry(entry: BudgetEntry) {
+    setEditingEntryId(entry.id);
+    setTitle(entry.title);
+    setAmount(entry.amount.toString());
+    setType(entry.type);
+    setCategory(entry.category);
+    setFrequency(entry.frequency);
+    setDate(entry.date);
+    setAccountId(entry.accountId);
+  }
+
+  function cancelEdit() {
+    setEditingEntryId(null);
     setTitle("");
     setAmount("");
     setType("expense");
@@ -314,7 +341,9 @@ export default function BudgetPage() {
     return entries
       .filter((entry) => appearsInMonth(entry, selectedMonth))
       .filter((entry) =>
-        selectedAccountId === "all" ? true : entry.accountId === selectedAccountId
+        selectedAccountId === "all"
+          ? true
+          : entry.accountId === selectedAccountId
       )
       .sort((a, b) =>
         getNextDueDate(a, selectedMonth).localeCompare(
@@ -345,11 +374,15 @@ export default function BudgetPage() {
 
   function getManualBalance(month: string, currentAccountId: number) {
     return manualBalances.find(
-      (balance) => balance.month === month && balance.accountId === currentAccountId
+      (balance) =>
+        balance.month === month && balance.accountId === currentAccountId
     )?.amount;
   }
 
-  function getStartBalanceForAccount(month: string, currentAccountId: number): number {
+  function getStartBalanceForAccount(
+    month: string,
+    currentAccountId: number
+  ): number {
     const manual = getManualBalance(month, currentAccountId);
     const account = accounts.find((item) => item.id === currentAccountId);
 
@@ -394,29 +427,6 @@ export default function BudgetPage() {
     );
   }
 
-  function setManualStartBalance() {
-    if (selectedAccountId === "all") return;
-
-    const numeric = Number(startBalanceInput);
-    if (Number.isNaN(numeric)) return;
-
-    const filtered = manualBalances.filter(
-      (balance) =>
-        !(balance.month === selectedMonth && balance.accountId === selectedAccountId)
-    );
-
-    saveBalances([
-      ...filtered,
-      {
-        month: selectedMonth,
-        accountId: selectedAccountId,
-        amount: numeric,
-      },
-    ]);
-
-    setStartBalanceInput("");
-  }
-
   function getAccountName(id: number) {
     return accounts.find((account) => account.id === id)?.name ?? "Konto";
   }
@@ -428,22 +438,17 @@ export default function BudgetPage() {
   const endBalance = getEndBalance(selectedMonth, selectedAccountId);
 
   const budgetPercentage =
-  income > 0
-    ? Math.max(
-        0,
-        Math.min(
-          100,
-          Math.round((endBalance / income) * 100)
-        )
-      )
-    : 0;
+    income > 0
+      ? Math.max(0, Math.min(100, Math.round((endBalance / income) * 100)))
+      : 0;
 
-const budgetColor =
-  budgetPercentage > 60
-    ? "bg-green-500"
-    : budgetPercentage > 30
-    ? "bg-yellow-500"
-    : "bg-red-500";
+  const budgetColor =
+    budgetPercentage > 60
+      ? "bg-green-500"
+      : budgetPercentage > 30
+      ? "bg-yellow-500"
+      : "bg-red-500";
+
   const totalWealth = accounts.reduce(
     (sum, account) => sum + getEndBalanceForAccount(selectedMonth, account.id),
     0
@@ -461,11 +466,6 @@ const budgetColor =
     return result;
   }, [monthEntries]);
 
-  const savingProgress =
-    goal.targetAmount > 0
-      ? Math.min(Math.round((goal.currentAmount / goal.targetAmount) * 100), 100)
-      : 0;
-
   const openDueCount = monthEntries.filter((entry) => {
     const due = getNextDueDate(entry, selectedMonth);
     const isAutoPaid = due <= today;
@@ -479,7 +479,9 @@ const budgetColor =
   const fixkosten = expensesByCategory["Fixkosten"] ?? 0;
   const lifestyle = expensesByCategory["Lifestyle"] ?? 0;
 
-  const fixkostenPercent = income > 0 ? Math.round((fixkosten / income) * 100) : 0;
+  const fixkostenPercent =
+    income > 0 ? Math.round((fixkosten / income) * 100) : 0;
+
   const lifestylePercent =
     expenses > 0 ? Math.round((lifestyle / expenses) * 100) : 0;
 
@@ -534,7 +536,7 @@ const budgetColor =
         <p className="text-sm text-neutral-400">Budget</p>
         <h1 className="mt-2 text-5xl font-black">Money Cockpit</h1>
         <p className="mt-2 text-neutral-300">
-          Konten, Monatsübertrag, Kategorien, Fälligkeiten und Sparziel.
+          Konten, Monatsübertrag, Kategorien und Fälligkeiten.
         </p>
       </section>
 
@@ -551,22 +553,24 @@ const budgetColor =
           ))}
         </select>
 
-        <select
-          value={selectedAccountId}
-          onChange={(e) =>
-            setSelectedAccountId(
-              e.target.value === "all" ? "all" : Number(e.target.value)
-            )
-          }
-          className="rounded-2xl border border-neutral-200 bg-white px-4 py-3"
-        >
-          <option value="all">Alle Konten</option>
-          {accounts.map((account) => (
-            <option key={account.id} value={account.id}>
-              {account.name}
-            </option>
-          ))}
-        </select>
+        {accounts.length > 1 && (
+          <select
+            value={selectedAccountId}
+            onChange={(e) =>
+              setSelectedAccountId(
+                e.target.value === "all" ? "all" : Number(e.target.value)
+              )
+            }
+            className="rounded-2xl border border-neutral-200 bg-white px-4 py-3"
+          >
+            <option value="all">Alle Konten</option>
+            {accounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name}
+              </option>
+            ))}
+          </select>
+        )}
 
         <button
           onClick={() => setSelectedMonth(getMonthKey(today))}
@@ -603,22 +607,50 @@ const budgetColor =
           );
         })}
 
-        <button
-          onClick={() => setSelectedAccountId("all")}
-          className={`rounded-[1.75rem] p-5 text-left shadow-md transition hover:-translate-y-0.5 hover:shadow-lg ${
-            selectedAccountId === "all" ? "bg-black text-white" : "bg-white"
-          }`}
-        >
-          <p
-            className={`text-sm ${
-              selectedAccountId === "all" ? "text-neutral-300" : "text-neutral-400"
+        {accounts.length > 1 && (
+          <button
+            onClick={() => setSelectedAccountId("all")}
+            className={`rounded-[1.75rem] p-5 text-left shadow-md transition hover:-translate-y-0.5 hover:shadow-lg ${
+              selectedAccountId === "all" ? "bg-black text-white" : "bg-white"
             }`}
           >
-            Gesamt
-          </p>
-          <h3 className="mt-2 text-xl font-black">Alle Konten</h3>
-          <p className="mt-3 text-2xl font-black">{totalWealth.toFixed(2)} €</p>
-        </button>
+            <p
+              className={`text-sm ${
+                selectedAccountId === "all"
+                  ? "text-neutral-300"
+                  : "text-neutral-400"
+              }`}
+            >
+              Gesamt
+            </p>
+            <h3 className="mt-2 text-xl font-black">Alle Konten</h3>
+            <p className="mt-3 text-2xl font-black">{totalWealth.toFixed(2)} €</p>
+          </button>
+        )}
+      </section>
+
+      <section className="rounded-[2rem] bg-white p-6 shadow-md">
+        <p className="text-xs uppercase tracking-wide text-neutral-400">
+          Verfügbares Budget
+        </p>
+
+        <div className="mt-2 flex items-end justify-between">
+          <div>
+            <h2 className="text-3xl font-black">{endBalance.toFixed(2)} €</h2>
+            <p className="text-sm text-neutral-500">
+              Noch verfügbar in diesem Monat
+            </p>
+          </div>
+
+          <p className="text-xl font-black">{budgetPercentage}%</p>
+        </div>
+
+        <div className="mt-5 h-5 rounded-full bg-neutral-200">
+          <div
+            className={`h-5 rounded-full transition-all ${budgetColor}`}
+            style={{ width: `${budgetPercentage}%` }}
+          />
+        </div>
       </section>
 
       <section className="rounded-[2rem] bg-white p-6 shadow-md">
@@ -658,37 +690,6 @@ const budgetColor =
           ))}
         </div>
       </section>
-
-<section className="rounded-[2rem] bg-white p-6 shadow-md">
-  <p className="text-xs uppercase tracking-wide text-neutral-400">
-    Verfügbares Budget
-  </p>
-
-  <div className="mt-2 flex items-end justify-between">
-    <div>
-      <h2 className="text-3xl font-black">
-        {endBalance.toFixed(2)} €
-      </h2>
-
-      <p className="text-sm text-neutral-500">
-        Noch verfügbar in diesem Monat
-      </p>
-    </div>
-
-    <p className="text-xl font-black">
-      {budgetPercentage}%
-    </p>
-  </div>
-
-  <div className="mt-5 h-5 rounded-full bg-neutral-200">
-    <div
-      className={`h-5 rounded-full transition-all ${budgetColor}`}
-      style={{
-        width: `${budgetPercentage}%`,
-      }}
-    />
-  </div>
-</section>
 
       <section
         onClick={() => setIsFlipped(!isFlipped)}
@@ -747,27 +748,6 @@ const budgetColor =
                 <h3 className="mt-2 text-2xl font-black">
                   {endBalance.toFixed(2)} €
                 </h3>
-              </div>
-            </div>
-
-            <div className="mt-6 rounded-2xl bg-neutral-50 p-5">
-              <div className="flex justify-between">
-                <div>
-                  <p className="font-semibold">{goal.title}</p>
-                  <p className="text-sm text-neutral-400">
-                    {goal.currentAmount.toFixed(2)} € von{" "}
-                    {goal.targetAmount.toFixed(2)} €
-                  </p>
-                </div>
-
-                <p className="font-black">{savingProgress}%</p>
-              </div>
-
-              <div className="mt-4 h-3 rounded-full bg-neutral-200">
-                <div
-                  className="h-3 rounded-full bg-black"
-                  style={{ width: `${savingProgress}%` }}
-                />
               </div>
             </div>
           </div>
@@ -835,7 +815,7 @@ const budgetColor =
             type="number"
             value={newAccountBalance}
             onChange={(e) => setNewAccountBalance(e.target.value)}
-            placeholder="Startbetrag"
+            placeholder="Startkontostand"
             className="rounded-2xl border border-neutral-200 px-4 py-3"
           />
 
@@ -872,71 +852,9 @@ const budgetColor =
       </section>
 
       <section className="rounded-[2rem] bg-white p-6 shadow-md">
-        <h2 className="text-2xl font-black">Startkontostand festlegen</h2>
-        <p className="mt-1 text-sm text-neutral-500">
-          Nur für ein einzelnes Konto möglich. Bei „Alle Konten“ wird automatisch
-          zusammengerechnet.
-        </p>
-
-        <div className="mt-5 flex gap-3">
-          <input
-            type="number"
-            value={startBalanceInput}
-            onChange={(e) => setStartBalanceInput(e.target.value)}
-            disabled={selectedAccountId === "all"}
-            placeholder={
-              selectedAccountId === "all"
-                ? "Bitte einzelnes Konto auswählen"
-                : `Startkontostand für ${selectedMonth}`
-            }
-            className="flex-1 rounded-2xl border border-neutral-200 px-4 py-3 disabled:bg-neutral-100"
-          />
-
-          <button
-            onClick={setManualStartBalance}
-            disabled={selectedAccountId === "all"}
-            className="rounded-2xl bg-black px-5 py-3 font-semibold text-white disabled:bg-neutral-300"
-          >
-            Speichern
-          </button>
-        </div>
-      </section>
-
-      <section className="rounded-[2rem] bg-white p-6 shadow-md">
-        <h2 className="text-2xl font-black">Sparziel bearbeiten</h2>
-
-        <div className="mt-5 grid gap-3 md:grid-cols-3">
-          <input
-            value={goal.title}
-            onChange={(e) => saveGoal({ ...goal, title: e.target.value })}
-            placeholder="Name des Sparziels"
-            className="rounded-2xl border border-neutral-200 px-4 py-3"
-          />
-
-          <input
-            type="number"
-            value={goal.targetAmount}
-            onChange={(e) =>
-              saveGoal({ ...goal, targetAmount: Number(e.target.value) })
-            }
-            placeholder="Zielbetrag"
-            className="rounded-2xl border border-neutral-200 px-4 py-3"
-          />
-
-          <input
-            type="number"
-            value={goal.currentAmount}
-            onChange={(e) =>
-              saveGoal({ ...goal, currentAmount: Number(e.target.value) })
-            }
-            placeholder="Aktuell gespart"
-            className="rounded-2xl border border-neutral-200 px-4 py-3"
-          />
-        </div>
-      </section>
-
-      <section className="rounded-[2rem] bg-white p-6 shadow-md">
-        <h2 className="text-2xl font-black">Neuer Eintrag</h2>
+        <h2 className="text-2xl font-black">
+          {editingEntryId ? "Eintrag bearbeiten" : "Neuer Eintrag"}
+        </h2>
 
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <input
@@ -1019,9 +937,18 @@ const budgetColor =
             onClick={addEntry}
             className="rounded-2xl bg-black px-5 py-3 font-semibold text-white transition hover:scale-105 active:scale-95"
           >
-            Hinzufügen
+            {editingEntryId ? "Speichern" : "Hinzufügen"}
           </button>
         </div>
+
+        {editingEntryId && (
+          <button
+            onClick={cancelEdit}
+            className="mt-3 rounded-2xl bg-neutral-100 px-5 py-3 font-semibold text-neutral-500 transition hover:text-black"
+          >
+            Bearbeiten abbrechen
+          </button>
+        )}
       </section>
 
       <section className="rounded-[2rem] bg-white p-6 shadow-md">
@@ -1071,7 +998,7 @@ const budgetColor =
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <button
                       onClick={() => togglePaid(entry.id, due)}
                       className={`rounded-2xl px-4 py-2 text-sm font-semibold ${
@@ -1081,6 +1008,13 @@ const budgetColor =
                       }`}
                     >
                       {isPaid ? "✅ bezahlt" : "⏳ offen"}
+                    </button>
+
+                    <button
+                      onClick={() => editEntry(entry)}
+                      className="rounded-2xl bg-blue-100 px-4 py-2 text-sm font-semibold text-blue-700"
+                    >
+                      Bearbeiten
                     </button>
 
                     <button
