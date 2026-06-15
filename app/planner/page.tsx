@@ -13,7 +13,7 @@ type PlannerEvent = {
 type TodayTask = {
   id: number;
   title: string;
-  done: boolean;
+  completed: boolean;
 };
 
 function getToday() {
@@ -34,6 +34,9 @@ export default function PlannerPage() {
 
   const [events, setEvents] = useState<PlannerEvent[]>([]);
   const [tasks, setTasks] = useState<TodayTask[]>([]);
+
+  const [editingEventId, setEditingEventId] = useState<number | null>(null);
+
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(today);
   const [start, setStart] = useState("09:00");
@@ -51,20 +54,49 @@ export default function PlannerPage() {
     if (savedTasks) setTasks(JSON.parse(savedTasks));
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem("events", JSON.stringify(events));
-  }, [events]);
+  function saveEvents(updatedEvents: PlannerEvent[]) {
+    setEvents(updatedEvents);
+    localStorage.setItem("events", JSON.stringify(updatedEvents));
+  }
 
-  useEffect(() => {
-    localStorage.setItem("tasks", JSON.stringify(tasks));
-  }, [tasks]);
+  function saveTasks(updatedTasks: TodayTask[]) {
+    setTasks(updatedTasks);
+    localStorage.setItem("tasks", JSON.stringify(updatedTasks));
+  }
 
-  function addEvent() {
+  function resetForm() {
+    setEditingEventId(null);
+    setTitle("");
+    setStart("09:00");
+    setEnd("10:00");
+  }
+
+  function saveEvent() {
     const trimmed = title.trim();
     if (!trimmed || !date || !start || !end) return;
 
     if (timeToMinutes(end) <= timeToMinutes(start)) {
       alert("Endzeit muss nach Startzeit liegen.");
+      return;
+    }
+
+    if (editingEventId) {
+      const updatedEvents = events
+        .map((event) =>
+          event.id === editingEventId
+            ? {
+                ...event,
+                title: trimmed,
+                date,
+                start,
+                end,
+              }
+            : event
+        )
+        .sort((a, b) => a.start.localeCompare(b.start));
+
+      saveEvents(updatedEvents);
+      resetForm();
       return;
     }
 
@@ -76,25 +108,55 @@ export default function PlannerPage() {
       end,
     };
 
-    setEvents((prev) =>
-      [...prev, newEvent].sort((a, b) => a.start.localeCompare(b.start))
-    );
+    saveEvents([...events, newEvent].sort((a, b) => a.start.localeCompare(b.start)));
+    resetForm();
+  }
 
-    setTitle("");
-    setStart("09:00");
-    setEnd("10:00");
+  function editEvent(event: PlannerEvent) {
+    setEditingEventId(event.id);
+    setTitle(event.title);
+    setDate(event.date);
+    setStart(event.start);
+    setEnd(event.end);
   }
 
   function deleteEvent(id: number) {
-    setEvents((prev) => prev.filter((event) => event.id !== id));
+    saveEvents(events.filter((event) => event.id !== id));
+
+    if (editingEventId === id) {
+      resetForm();
+    }
   }
 
   function toggleTask(id: number) {
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === id ? { ...task, done: !task.done } : task
+    saveTasks(
+      tasks.map((task) =>
+        task.id === id ? { ...task, completed: !task.completed } : task
       )
     );
+  }
+
+  function planSelectedTask() {
+    if (!selectedTask) return;
+
+    if (timeToMinutes(assignEnd) <= timeToMinutes(assignStart)) {
+      alert("Endzeit muss nach Startzeit liegen.");
+      return;
+    }
+
+    const newEvent: PlannerEvent = {
+      id: Date.now(),
+      title: selectedTask.title,
+      date,
+      start: assignStart,
+      end: assignEnd,
+    };
+
+    saveEvents([...events, newEvent].sort((a, b) => a.start.localeCompare(b.start)));
+
+    setSelectedTask(null);
+    setAssignStart("09:00");
+    setAssignEnd("10:00");
   }
 
   const selectedEvents = useMemo(() => {
@@ -103,8 +165,8 @@ export default function PlannerPage() {
       .sort((a, b) => a.start.localeCompare(b.start));
   }, [events, date]);
 
-  const openTasks = tasks.filter((task) => !task.done);
-  const doneTasks = tasks.filter((task) => task.done);
+  const openTasks = tasks.filter((task) => !task.completed);
+  const doneTasks = tasks.filter((task) => task.completed);
 
   const hours = Array.from(
     { length: END_HOUR - START_HOUR + 1 },
@@ -129,20 +191,22 @@ export default function PlannerPage() {
     <div className="space-y-6">
       <section className="rounded-[2rem] bg-black p-8 text-white shadow-xl">
         <p className="text-sm text-neutral-400">{date}</p>
-        <h1 className="mt-2 text-5xl font-black">Planner</h1>
+        <h1 className="mt-2 text-5xl font-black">📅 Planung</h1>
         <p className="mt-2 text-neutral-300">
-          Plane Termine und kombiniere sie mit deinen Tasks.
+          Plane Termine und kombiniere sie mit deinen Aufgaben.
         </p>
       </section>
 
       <section className="rounded-[2rem] bg-white p-6 shadow-md">
-        <h2 className="text-2xl font-black">Neuer Termin</h2>
+        <h2 className="text-2xl font-black">
+          {editingEventId ? "Termin bearbeiten" : "Neuer Termin"}
+        </h2>
 
         <div className="mt-5 grid gap-3 md:grid-cols-[1fr_160px_130px_130px_auto]">
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addEvent()}
+            onKeyDown={(e) => e.key === "Enter" && saveEvent()}
             placeholder="Termin, Aufgabe oder Zeitblock"
             className="rounded-2xl border border-neutral-200 px-4 py-3 outline-none focus:border-neutral-500"
           />
@@ -169,12 +233,21 @@ export default function PlannerPage() {
           />
 
           <button
-            onClick={addEvent}
-            className="rounded-2xl bg-black px-5 py-3 text-white transition hover:scale-105 active:scale-95"
+            onClick={saveEvent}
+            className="rounded-2xl bg-black px-5 py-3 font-semibold text-white transition hover:scale-105 active:scale-95"
           >
-            +
+            {editingEventId ? "Speichern" : "+"}
           </button>
         </div>
+
+        {editingEventId && (
+          <button
+            onClick={resetForm}
+            className="mt-3 rounded-2xl bg-neutral-100 px-5 py-3 font-semibold"
+          >
+            Abbrechen
+          </button>
+        )}
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1fr_320px]">
@@ -185,7 +258,7 @@ export default function PlannerPage() {
                 Timeline
               </p>
               <h2 className="mt-2 text-2xl font-black">
-                {selectedEvents.length} Termine
+                {selectedEvents.length} Termin(e)
               </h2>
             </div>
 
@@ -232,11 +305,8 @@ export default function PlannerPage() {
                   const startMin = timeToMinutes(event.start);
                   const endMin = timeToMinutes(event.end);
 
-                  const top =
-                    ((startMin - startMinutes) / 60) * HOUR_HEIGHT;
-
-                  const height =
-                    ((endMin - startMin) / 60) * HOUR_HEIGHT;
+                  const top = ((startMin - startMinutes) / 60) * HOUR_HEIGHT;
+                  const height = ((endMin - startMin) / 60) * HOUR_HEIGHT;
 
                   return (
                     <div
@@ -244,7 +314,7 @@ export default function PlannerPage() {
                       className="absolute left-4 right-4 rounded-2xl bg-black p-4 text-white shadow-lg"
                       style={{
                         top: `${Math.max(0, top)}px`,
-                        height: `${Math.max(56, height)}px`,
+                        height: `${Math.max(64, height)}px`,
                       }}
                     >
                       <div className="flex h-full justify-between gap-4">
@@ -255,12 +325,21 @@ export default function PlannerPage() {
                           </p>
                         </div>
 
-                        <button
-                          onClick={() => deleteEvent(event.id)}
-                          className="self-start rounded-xl px-3 py-2 text-neutral-400 transition hover:bg-white/10 hover:text-white"
-                        >
-                          ✕
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => editEvent(event)}
+                            className="self-start rounded-xl px-3 py-2 text-neutral-400 transition hover:bg-white/10 hover:text-white"
+                          >
+                            ✏️
+                          </button>
+
+                          <button
+                            onClick={() => deleteEvent(event.id)}
+                            className="self-start rounded-xl px-3 py-2 text-neutral-400 transition hover:bg-white/10 hover:text-white"
+                          >
+                            ✕
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -273,14 +352,14 @@ export default function PlannerPage() {
         <aside className="space-y-6">
           <section className="rounded-[2rem] bg-white p-6 shadow-md">
             <p className="text-xs uppercase tracking-wide text-neutral-400">
-              Tasks
+              Aufgaben
             </p>
             <h2 className="mt-2 text-2xl font-black">Offen</h2>
 
             <div className="mt-5 space-y-3">
               {openTasks.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-neutral-300 p-4 text-sm text-neutral-400">
-                  Keine offenen Tasks.
+                  Keine offenen Aufgaben.
                 </div>
               ) : (
                 openTasks.map((task) => (
@@ -332,11 +411,9 @@ export default function PlannerPage() {
           <div className="w-full max-w-sm space-y-4 rounded-[2rem] bg-white p-6 shadow-xl">
             <div>
               <p className="text-xs uppercase tracking-wide text-neutral-400">
-                Task einplanen
+                Aufgabe einplanen
               </p>
-              <h2 className="mt-2 text-2xl font-black">
-                {selectedTask.title}
-              </h2>
+              <h2 className="mt-2 text-2xl font-black">{selectedTask.title}</h2>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -357,30 +434,7 @@ export default function PlannerPage() {
 
             <div className="flex gap-3">
               <button
-                onClick={() => {
-                  if (timeToMinutes(assignEnd) <= timeToMinutes(assignStart)) {
-                    alert("Endzeit muss nach Startzeit liegen.");
-                    return;
-                  }
-
-                  const newEvent: PlannerEvent = {
-                    id: Date.now(),
-                    title: selectedTask.title,
-                    date,
-                    start: assignStart,
-                    end: assignEnd,
-                  };
-
-                  setEvents((prev) =>
-                    [...prev, newEvent].sort((a, b) =>
-                      a.start.localeCompare(b.start)
-                    )
-                  );
-
-                  setSelectedTask(null);
-                  setAssignStart("09:00");
-                  setAssignEnd("10:00");
-                }}
+                onClick={planSelectedTask}
                 className="flex-1 rounded-2xl bg-black px-4 py-3 font-semibold text-white"
               >
                 Einplanen
